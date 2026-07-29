@@ -15,6 +15,17 @@ time = { version = "0.3.31", features = ["parsing"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 ---
+//! Updates the [Cargo status tracker](https://github.com/orgs/rust-lang/projects/47).
+//!
+//! Run from the repository root:
+//!
+//! ```console
+//! cargo +nightly -Zscript tools/cargo-tracker.rs
+//! ```
+//!
+//! * Requires `GITHUB_TOKEN` or an authenticated `gh` CLI with project write access.
+//! * Running the script immediately mutates the project board.
+
 use anyhow::{Context, Result, bail};
 use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, HeaderValue, USER_AGENT};

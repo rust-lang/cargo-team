@@ -15,6 +15,19 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
+//! Manages Cargo meeting notes and announcements.
+//!
+//! Run from the repository root:
+//!
+//! ```console
+//! cargo +nightly -Zscript tools/cargo-meetings.rs new-meeting
+//! cargo +nightly -Zscript tools/cargo-meetings.rs announce-meeting
+//! cargo +nightly -Zscript tools/cargo-meetings.rs save-notes --cargo-team-repo .
+//! ```
+//!
+//! * All commands require `HMD_API_ACCESS_TOKEN`.
+//! * `announce-meeting` also requires `ZULIP_LOGIN` and `ZULIP_API_TOKEN`.
+//! * `save-notes` commits and git-pushes notes to remote.
 
 use chrono::TimeZone;
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
