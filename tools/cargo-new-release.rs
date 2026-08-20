@@ -120,16 +120,9 @@ fn check_status(cargo_repo: &Path, cargo_remote: &str) -> Result<()> {
         .current_dir(cargo_repo)
         .run_stdout()?;
     env::set_current_dir(root)?;
-    if !Command::git("diff-index --quiet HEAD .").run_success()? {
-        eprintln!("Working tree has changes.");
-        Command::git("status --porcelain").run_success()?;
-        if !Confirm::new()
-            .with_prompt("Do you want to continue?")
-            .default(false)
-            .interact()?
-        {
-            exit(1);
-        }
+    let status = Command::git("status --porcelain").run_stdout()?;
+    if !status.is_empty() {
+        bail!("Cargo checkout has uncommitted changes:\n{status}");
     }
     let remote = Command::git(&format!("remote get-url {cargo_remote}")).run_stdout()?;
     if !remote.ends_with("rust-lang/cargo.git") {
