@@ -7,22 +7,51 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
+clap = { version = "4.6", features = ["derive"] }
 dialoguer = "0.9"
 regex = "1.12"
 semver = "1.0"
 time = { version = "0.3", features = ["formatting", "macros"] }
 ---
 use anyhow::{anyhow, bail, Context, Result};
+use clap::Parser;
 use dialoguer::Confirm;
 use regex::Regex;
 use semver::Version;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{exit, Command, Stdio};
 use time::macros::{date, format_description};
 
 const CHANGELOG_PATH: &str = "src/doc/src/CHANGELOG.md";
+
+#[derive(Debug, Parser)]
+#[command(name = "cargo-new-release")]
+#[command(bin_name = "cargo-new-release")]
+#[command(about = "Prepare Cargo's next version and changelog commits")]
+struct Cli {
+    /// Path to the rust-lang/cargo checkout to update.
+    #[arg(long, value_name = "PATH")]
+    cargo_repo: PathBuf,
+
+    /// Remote in the Cargo checkout that points to rust-lang/cargo.
+    #[arg(long, default_value = "origin", value_name = "REMOTE")]
+    cargo_remote: String,
+
+    /// Path to a rust-lang/rust checkout used to inspect the beta submodule.
+    #[arg(long, value_name = "PATH")]
+    rust_repo: PathBuf,
+
+    /// Remote in the Rust checkout that points to rust-lang/rust.
+    #[arg(long, default_value = "origin", value_name = "REMOTE")]
+    rust_remote: String,
+
+    /// Local branch to create for the release commits.
+    #[arg(long, default_value = "version-bump", value_name = "BRANCH")]
+    branch: String,
+}
 
 trait CommandExt {
     fn git(args: &str) -> Command;
@@ -86,8 +115,10 @@ impl CommandExt for Command {
 }
 
 /// Checks that the repo is ready to go.
-fn check_status() -> Result<()> {
-    let root = Command::git("rev-parse --show-toplevel").run_stdout()?;
+fn check_status(cargo_repo: &Path, cargo_remote: &str) -> Result<()> {
+    let root = Command::git("rev-parse --show-toplevel")
+        .current_dir(cargo_repo)
+        .run_stdout()?;
     env::set_current_dir(root)?;
     if !Command::git("diff-index --quiet HEAD .").run_success()? {
         eprintln!("Working tree has changes.");
@@ -100,33 +131,29 @@ fn check_status() -> Result<()> {
             exit(1);
         }
     }
-    let upstream = Command::git("config remote.upstream.url").run_stdout()?;
-    if !upstream.ends_with("rust-lang/cargo.git") {
-        bail!("upstream does not appear to be rust-lang/cargo, was: {upstream}");
-    }
-    let origin = Command::git("config remote.origin.url").run_stdout()?;
-    if !origin.ends_with("/cargo.git") {
-        bail!("origin does not appear to be cargo, was: {origin}");
+    let remote = Command::git(&format!("remote get-url {cargo_remote}")).run_stdout()?;
+    if !remote.ends_with("rust-lang/cargo.git") {
+        bail!("{cargo_remote} does not appear to be rust-lang/cargo, was: {remote}");
     }
     Ok(())
 }
 
-/// Creates the `version-bump` branch.
-fn create_branch() -> Result<()> {
-    if !Command::git("fetch upstream --tags").run_success()? {
-        bail!("failed to fetch upstream");
+/// Creates the release branch.
+fn create_branch(cargo_remote: &str, branch: &str) -> Result<()> {
+    if !Command::git(&format!("fetch {cargo_remote} --tags")).run_success()? {
+        bail!("failed to fetch {cargo_remote}");
     }
-    if Command::git("show-ref --verify --quiet refs/heads/version-bump").run_success()? {
-        eprintln!("info: replacing version-bump branch");
+    if Command::git(&format!("show-ref --verify --quiet refs/heads/{branch}")).run_success()? {
+        eprintln!("info: replacing {branch} branch");
     }
-    eprintln!("info: creating version-bump branch");
-    if !Command::git("checkout -B version-bump upstream/master").run_success()? {
+    eprintln!("info: creating {branch} branch");
+    if !Command::git(&format!("checkout -B {branch} {cargo_remote}/master")).run_success()? {
         bail!("failed to create branch");
     }
-    if !Command::git("config branch.version-bump.remote origin").run_success()? {
+    if !Command::git(&format!("config branch.{branch}.remote origin")).run_success()? {
         bail!("failed to set remote origin");
     }
-    if !Command::git("config branch.version-bump.merge refs/heads/version-bump").run_success()? {
+    if !Command::git(&format!("config branch.{branch}.merge refs/heads/{branch}")).run_success()? {
         bail!("failed to set branch merge");
     }
     Ok(())
@@ -180,15 +207,20 @@ fn commit_bump(next_version: &Version) -> Result<()> {
 }
 
 /// Modifies the changelog to include stubs for the given version.
-fn prep_changelog(next_version: &Version, rust_repo: &str) -> Result<()> {
+fn prep_changelog(
+    next_version: &Version,
+    rust_repo: &Path,
+    cargo_remote: &str,
+    rust_remote: &str,
+) -> Result<()> {
     let beta_minor_version = next_version.minor - 2;
-    if !Command::git("fetch upstream --tags")
+    if !Command::git(&format!("fetch {rust_remote} --tags"))
         .current_dir(rust_repo)
         .run_success()?
     {
-        bail!("failed to fetch rust upstream");
+        bail!("failed to fetch {rust_remote}");
     }
-    let last_beta_line = Command::git("ls-tree upstream/beta src/tools/cargo")
+    let last_beta_line = Command::git(&format!("ls-tree {rust_remote}/beta src/tools/cargo"))
         .current_dir(rust_repo)
         .run_stdout()?;
     let mut parts = last_beta_line.split_whitespace();
@@ -204,7 +236,7 @@ fn prep_changelog(next_version: &Version, rust_repo: &str) -> Result<()> {
 
     let beta_version = format!("rust-1.{beta_minor_version}.0");
     let last_branch_line =
-        Command::git(&format!("show-ref upstream/{beta_version}")).run_stdout()?;
+        Command::git(&format!("show-ref {cargo_remote}/{beta_version}")).run_stdout()?;
     let last_branch_hash = last_branch_line
         .split_whitespace()
         .next()
@@ -213,7 +245,7 @@ fn prep_changelog(next_version: &Version, rust_repo: &str) -> Result<()> {
     if last_beta_hash != last_branch_hash {
         eprintln!(
             "warning: rust-lang/rust beta branch hash {last_beta_hash} does not equal \
-             rust-lang/cargo upstream/{beta_version} hash {last_branch_hash}"
+             rust-lang/cargo {cargo_remote}/{beta_version} hash {last_branch_hash}"
         );
         eprintln!(
             "This may happen if changes are pushed to {beta_version} shortly after the beta \
@@ -243,11 +275,15 @@ fn prep_changelog(next_version: &Version, rust_repo: &str) -> Result<()> {
         .replace_all(&changelog, format!("{beta_hash_start}...{beta_version}"))
         .into_owned();
 
-    let master_prs = find_prs(&changelog, start_of_beta_short_hash, "upstream/master")?;
+    let master_prs = find_prs(
+        &changelog,
+        start_of_beta_short_hash,
+        &format!("{cargo_remote}/master"),
+    )?;
     let beta_prs = find_prs(
         &changelog,
         beta_hash_start,
-        &format!("upstream/{beta_version}"),
+        &format!("{cargo_remote}/{beta_version}"),
     )?;
 
     let added_idx = changelog
@@ -399,7 +435,7 @@ fn commit_changelog(next_version: &Version) -> Result<()> {
 }
 
 /// Pushes the branch and opens the new pull request page.
-fn create_pr(next_version: &Version) -> Result<()> {
+fn create_pr(next_version: &Version, branch: &str) -> Result<()> {
     if !Command::git("push").run_success()? {
         bail!("failed to push");
     }
@@ -409,7 +445,7 @@ fn create_pr(next_version: &Version) -> Result<()> {
         .captures(&origin)
         .ok_or_else(|| anyhow!("could not determine GitHub username from {origin}"))?[1];
     open_browser(&[&format!(
-        "https://github.com/{username}/cargo/pull/new/version-bump"
+        "https://github.com/{username}/cargo/pull/new/{branch}"
     )])?;
     eprintln!("title:\nBump to {next_version}, update changelog");
     Ok(())
@@ -423,17 +459,20 @@ fn next_version_date(next_version: &Version) -> Result<String> {
 }
 
 fn run() -> Result<()> {
-    let rust_repo = env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow!("expected path to rust repo as first argument"))?;
-    check_status()?;
-    create_branch()?;
+    let cli = Cli::parse();
+    check_status(&cli.cargo_repo, &cli.cargo_remote)?;
+    create_branch(&cli.cargo_remote, &cli.branch)?;
     let next_version = bump_version_toml()?;
     wait_for_inspection()?;
     commit_bump(&next_version)?;
-    prep_changelog(&next_version, &rust_repo)?;
+    prep_changelog(
+        &next_version,
+        &cli.rust_repo,
+        &cli.cargo_remote,
+        &cli.rust_remote,
+    )?;
     commit_changelog(&next_version)?;
-    create_pr(&next_version)
+    create_pr(&next_version, &cli.branch)
 }
 
 fn main() {
