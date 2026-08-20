@@ -8,14 +8,12 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
-dialoguer = "0.9"
 regex = "1.12"
 semver = "1.0"
 time = { version = "0.3", features = ["formatting", "macros"] }
 ---
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
-use dialoguer::Confirm;
 use regex::Regex;
 use semver::Version;
 use std::env;
@@ -175,19 +173,6 @@ fn bump_version_toml() -> Result<Version> {
     Ok(next_version)
 }
 
-/// Waits for the user to manually validate.
-fn wait_for_inspection() -> Result<()> {
-    eprintln!("Check for tests or rustc probing (usually target_info.rs) that can be updated.");
-    if !Confirm::new()
-        .with_prompt("Ready to commit?")
-        .default(true)
-        .interact()?
-    {
-        exit(1);
-    }
-    Ok(())
-}
-
 /// Commits the version bump.
 fn commit_bump(next_version: &Version) -> Result<()> {
     if !Command::git("commit -a -m")
@@ -236,21 +221,10 @@ fn prep_changelog(
         .ok_or_else(|| anyhow!("Cargo beta ref did not contain a hash"))?;
 
     if last_beta_hash != last_branch_hash {
-        eprintln!(
-            "warning: rust-lang/rust beta branch hash {last_beta_hash} does not equal \
-             rust-lang/cargo {cargo_remote}/{beta_version} hash {last_branch_hash}"
+        bail!(
+            "rust-lang/rust beta uses Cargo {last_beta_hash}, but \
+             rust-lang/cargo {cargo_remote}/{beta_version} points to {last_branch_hash}"
         );
-        eprintln!(
-            "This may happen if changes are pushed to {beta_version} shortly after the beta \
-             branch was created. Please carefully inspect whether that happened."
-        );
-        if !Confirm::new()
-            .with_prompt("Do you want to continue?")
-            .default(true)
-            .interact()?
-        {
-            exit(1);
-        }
     }
     let start_of_beta_short_hash = &last_beta_hash[..8];
 
@@ -309,18 +283,6 @@ fn prep_changelog(
         ),
     );
     fs::write(CHANGELOG_PATH, changelog)?;
-
-    eprintln!(
-        "Review and edit {CHANGELOG_PATH} for nightly 1.{}.0 and beta 1.{beta_minor_version}.0.",
-        next_version.minor - 1,
-    );
-    if !Confirm::new()
-        .with_prompt("Ready to commit?")
-        .default(true)
-        .interact()?
-    {
-        exit(1);
-    }
     Ok(())
 }
 
@@ -412,7 +374,6 @@ fn run() -> Result<()> {
     check_status(&cli.cargo_repo, &cli.cargo_remote)?;
     create_branch(&cli.cargo_remote, &cli.branch)?;
     let next_version = bump_version_toml()?;
-    wait_for_inspection()?;
     commit_bump(&next_version)?;
     prep_changelog(
         &next_version,
@@ -421,6 +382,11 @@ fn run() -> Result<()> {
         &cli.rust_remote,
     )?;
     commit_changelog(&next_version)?;
+    eprintln!(
+        "Review and edit {CHANGELOG_PATH} for nightly 1.{}.0 and beta 1.{}.0, then amend the changelog commit.",
+        next_version.minor - 1,
+        next_version.minor - 2,
+    );
     eprintln!(
         "Prepared local branch `{}`. Push it manually when ready.",
         cli.branch
