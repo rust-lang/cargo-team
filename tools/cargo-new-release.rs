@@ -153,7 +153,7 @@ fn create_branch(cargo_remote: &str, branch: &str) -> Result<()> {
     Ok(())
 }
 
-/// Updates the version in `Cargo.toml`.
+/// Updates the version in `Cargo.toml` and `Cargo.lock`.
 fn bump_version_toml() -> Result<Version> {
     let mut manifest = fs::read_to_string("Cargo.toml").context("failed to read Cargo.toml")?;
     let version_start = manifest
@@ -173,6 +173,12 @@ fn bump_version_toml() -> Result<Version> {
         &next_version.to_string(),
     );
     fs::write("Cargo.toml", manifest)?;
+    if !Command::new("cargo")
+        .args(["update", "--workspace"])
+        .run_success()?
+    {
+        bail!("failed to update Cargo.lock");
+    }
     Ok(next_version)
 }
 
