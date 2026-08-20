@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Command, Stdio};
 use time::macros::{date, format_description};
 
-const CHANGELOG_PATH: &str = "src/doc/src/CHANGELOG.md";
+const CHANGELOG_PATH: &str = "doc/book/src/CHANGELOG.md";
 
 #[derive(Debug, Parser)]
 #[command(name = "cargo-new-release")]
