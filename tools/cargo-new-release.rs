@@ -150,12 +150,6 @@ fn create_branch(cargo_remote: &str, branch: &str) -> Result<()> {
     if !Command::git(&format!("checkout -B {branch} {cargo_remote}/master")).run_success()? {
         bail!("failed to create branch");
     }
-    if !Command::git(&format!("config branch.{branch}.remote origin")).run_success()? {
-        bail!("failed to set remote origin");
-    }
-    if !Command::git(&format!("config branch.{branch}.merge refs/heads/{branch}")).run_success()? {
-        bail!("failed to set branch merge");
-    }
     Ok(())
 }
 
@@ -317,29 +311,10 @@ fn prep_changelog(
     );
     fs::write(CHANGELOG_PATH, changelog)?;
 
-    let master_urls = master_prs
-        .iter()
-        .map(|(_, url, _)| url.as_str())
-        .collect::<Vec<_>>();
-    open_browser(&master_urls)?;
     eprintln!(
-        "Update the nightly version 1.{}.0 and come back when finished.",
-        next_version.minor - 1
+        "Review and edit {CHANGELOG_PATH} for nightly 1.{}.0 and beta 1.{beta_minor_version}.0.",
+        next_version.minor - 1,
     );
-    if !Confirm::new()
-        .with_prompt("Ready to continue?")
-        .default(true)
-        .interact()?
-    {
-        exit(1);
-    }
-
-    let beta_urls = beta_prs
-        .iter()
-        .map(|(_, url, _)| url.as_str())
-        .collect::<Vec<_>>();
-    open_browser(&beta_urls)?;
-    eprintln!("Update the beta version 1.{beta_minor_version}.0 and come back when finished.");
     if !Confirm::new()
         .with_prompt("Ready to commit?")
         .default(true)
@@ -354,17 +329,6 @@ fn format_pr_links(prs: &[(u32, String, String)]) -> String {
     prs.iter()
         .map(|(number, url, description)| format!("- {description} \n  [#{number}]({url})\n"))
         .collect()
-}
-
-fn open_browser(urls: &[&str]) -> Result<()> {
-    if !Command::new("/Applications/Firefox.app/Contents/MacOS/firefox")
-        .arg("-url")
-        .args(urls)
-        .run_success()?
-    {
-        bail!("failed to open Firefox");
-    }
-    Ok(())
 }
 
 fn find_prs(changelog: &str, start: &str, end: &str) -> Result<Vec<(u32, String, String)>> {
@@ -434,23 +398,6 @@ fn commit_changelog(next_version: &Version) -> Result<()> {
     Ok(())
 }
 
-/// Pushes the branch and opens the new pull request page.
-fn create_pr(next_version: &Version, branch: &str) -> Result<()> {
-    if !Command::git("push").run_success()? {
-        bail!("failed to push");
-    }
-    let origin = Command::git("remote get-url origin").run_stdout()?;
-    let user_re = Regex::new(r"([a-zA-Z0-9-]+)/cargo")?;
-    let username = &user_re
-        .captures(&origin)
-        .ok_or_else(|| anyhow!("could not determine GitHub username from {origin}"))?[1];
-    open_browser(&[&format!(
-        "https://github.com/{username}/cargo/pull/new/{branch}"
-    )])?;
-    eprintln!("title:\nBump to {next_version}, update changelog");
-    Ok(())
-}
-
 fn next_version_date(next_version: &Version) -> Result<String> {
     let first = date!(2015 - 05 - 15);
     let next_days = ((next_version.minor - 1) * 42) as i64;
@@ -472,7 +419,11 @@ fn run() -> Result<()> {
         &cli.rust_remote,
     )?;
     commit_changelog(&next_version)?;
-    create_pr(&next_version, &cli.branch)
+    eprintln!(
+        "Prepared local branch `{}`. Push it manually when ready.",
+        cli.branch
+    );
+    Ok(())
 }
 
 fn main() {
