@@ -12,6 +12,21 @@ regex = "1.12"
 semver = "1.0"
 time = { version = "0.3", features = ["formatting", "macros"] }
 ---
+//! Prepares Cargo's version bump and changelog commits.
+//!
+//! Run from the repository root:
+//!
+//! ```console
+//! cargo +nightly -Zscript tools/cargo-new-release.rs --cargo-repo ../cargo --rust-repo ../rust
+//! ```
+//!
+//! * Generates three commits:
+//!   1. Version bump commit for Cargo.toml and Cargo.lock.
+//!   2. Changelog update commit for beta.
+//!   3. Changelog update commit for nightly.
+//! * Requires a clean `rust-lang/cargo` checkout and a `rust-lang/rust` checkout.
+//! * The generated changelog requires manual categorizing and review.
+
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use regex::Regex;
