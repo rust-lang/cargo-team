@@ -198,7 +198,7 @@ fn wait_for_inspection() -> Result<()> {
 /// Commits the version bump.
 fn commit_bump(next_version: &Version) -> Result<()> {
     if !Command::git("commit -a -m")
-        .arg(format!("Bump to {next_version}"))
+        .arg(format!("chore: bump to {next_version}"))
         .run_success()?
     {
         bail!("failed to commit");
@@ -396,7 +396,10 @@ fn commits_in_log(log: &str) -> Result<Vec<(u32, String, String)>> {
 /// Commits the changelog update.
 fn commit_changelog(next_version: &Version) -> Result<()> {
     if !Command::git("commit -a -m")
-        .arg(format!("Update changelog for 1.{}", next_version.minor - 2))
+        .arg(format!(
+            "docs(changelog): 1.{}.0 update",
+            next_version.minor - 2
+        ))
         .run_success()?
     {
         bail!("failed to commit changelog");
