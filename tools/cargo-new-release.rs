@@ -280,6 +280,10 @@ fn prep_changelog(
              ### Fixed\n\
              \n\
              ### Nightly only\n\
+             \n\
+             ### Documentation\n\
+             \n\
+             ### Internal\n\
              \n",
             next_version.minor - 1,
             next_version_date(next_version)?,
