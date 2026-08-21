@@ -242,11 +242,6 @@ fn prep_changelog(
         .replace_all(&changelog, format!("{beta_hash_start}...{beta_version}"))
         .into_owned();
 
-    let master_prs = find_prs(
-        &changelog,
-        start_of_beta_short_hash,
-        &format!("{cargo_remote}/master"),
-    )?;
     let beta_prs = find_prs(
         &changelog,
         beta_hash_start,
@@ -257,6 +252,15 @@ fn prep_changelog(
         .find("### Added\n")
         .ok_or_else(|| anyhow!("could not find `### Added` in {CHANGELOG_PATH}"))?;
     changelog.insert_str(added_idx, &format_pr_links(&beta_prs));
+
+    fs::write(CHANGELOG_PATH, &changelog)?;
+    commit_changelog(beta_minor_version)?;
+
+    let master_prs = find_prs(
+        &changelog,
+        start_of_beta_short_hash,
+        &format!("{cargo_remote}/master"),
+    )?;
 
     if !changelog.starts_with("# Changelog\n") {
         bail!("{CHANGELOG_PATH} did not start with `# Changelog`");
@@ -283,7 +287,7 @@ fn prep_changelog(
         ),
     );
     fs::write(CHANGELOG_PATH, changelog)?;
-    Ok(())
+    commit_changelog(next_version.minor - 1)
 }
 
 fn format_pr_links(prs: &[(u32, String, String)]) -> String {
@@ -349,12 +353,9 @@ fn commits_in_log(log: &str) -> Result<Vec<(u32, String, String)>> {
 }
 
 /// Commits the changelog update.
-fn commit_changelog(next_version: &Version) -> Result<()> {
+fn commit_changelog(minor_version: u64) -> Result<()> {
     if !Command::git("commit -a -m")
-        .arg(format!(
-            "docs(changelog): 1.{}.0 update",
-            next_version.minor - 2
-        ))
+        .arg(format!("docs(changelog): 1.{minor_version}.0 update"))
         .run_success()?
     {
         bail!("failed to commit changelog");
@@ -381,7 +382,6 @@ fn run() -> Result<()> {
         &cli.cargo_remote,
         &cli.rust_remote,
     )?;
-    commit_changelog(&next_version)?;
     eprintln!(
         "Review and edit {CHANGELOG_PATH} for nightly 1.{}.0 and beta 1.{}.0, then amend the changelog commit.",
         next_version.minor - 1,
